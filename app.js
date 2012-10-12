@@ -58,15 +58,22 @@ var validateQueryStringParameters = function(width, height, url, res) {
 var sendResizedImage = function(image_path, width, height, res) {
 	var extension = getFileExtension(image_path);
 	var resized_image_path = pathWithoutExtension(image_path, extension) + "-" + width + 'x' + height + "." + extension;
-	im.crop({
-		srcPath : image_path,
-		dstPath : resized_image_path,
-		quality : 1,
-		width : width,
-		height : height
-	}, function(err, stdout, stderr) {
-		if (err) { throw err; };
-		res.sendfile(resized_image_path);
+
+	fs.exists(resized_image_path, function(exists) {
+		if (!exists) {
+			im.crop({
+				srcPath : image_path,
+				dstPath : resized_image_path,
+				quality : 1,
+				width : width,
+				height : height
+			}, function(err, stdout, stderr) {
+				if (err) { throw err; };
+				res.sendfile(resized_image_path);
+			});			
+		} else {
+			res.sendfile(resized_image_path);
+		};
 	});
 };
 
