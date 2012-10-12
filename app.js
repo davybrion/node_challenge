@@ -1,6 +1,7 @@
 var express = require('express'),
 	request = require('request'),
 	fs = require('fs'),
+	im = require('imagemagick'),
 	crypto = require('crypto');
 
 var app = express(),
@@ -13,20 +14,28 @@ app.get('/', function(req, res){
 
 	validateQueryStringParameters(width, height, url, res);
 	var hashedUrl = crypto.createHash('md5').update(url).digest('hex');
-	var image_path = image_cache_path + '/' + hashedUrl;
+	var image_path = image_cache_path + '/' + hashedUrl + '.' + getFileExtension(url);
 
 	fs.exists(image_path, function(exists) {
 		if (!exists) {
 			var r = request(url)
 			r.pipe(fs.createWriteStream(image_path));
 			r.on('end', function() {
-				sendResizedImage(image_path, res);
+				sendResizedImage(image_path, width, height, res);
 			});
 		} else {
-			sendResizedImage(image_path, res);
+			sendResizedImage(image_path, width, height, res);
 		}
 	});
 });
+
+var getFileExtension = function(path) {
+	return path.match(/.+\.([^?]+)(\?|$)/)[1];
+};
+
+var pathWithoutExtension = function(path, extension) {
+	return path.substring(0, path.length - extension.length - 1);
+}
 
 var validateParameter = function(parameter, name, res) {
 	if (!parameter) {
@@ -46,8 +55,19 @@ var validateQueryStringParameters = function(width, height, url, res) {
 	return valid;
 };
 
-var sendResizedImage = function(image_path, res) {
-	res.send("you should've received the resized image now, but i still need to write that part... check back soon ;)");
+var sendResizedImage = function(image_path, width, height, res) {
+	var extension = getFileExtension(image_path);
+	var resized_image_path = pathWithoutExtension(image_path, extension) + "-" + width + 'x' + height + "." + extension;
+	im.crop({
+		srcPath : image_path,
+		dstPath : resized_image_path,
+		quality : 1,
+		width : width,
+		height : height
+	}, function(err, stdout, stderr) {
+		if (err) { throw err; };
+		res.sendfile(resized_image_path);
+	});
 };
 
 if (!fs.existsSync(image_cache_path)) {
