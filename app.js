@@ -15,17 +15,33 @@ app.get('/', function(req, res){
 	validateQueryStringParameters(width, height, url, res);
 	var hashedUrl = crypto.createHash('md5').update(url).digest('hex');
 	var image_path = image_cache_path + '/' + hashedUrl + '.' + getFileExtension(url);
+	var resized_image_path = getResizedImagePath(image_path, width, height);
 
-	fs.exists(image_path, function(exists) {
-		if (!exists) {
-			var r = request(url)
-			r.pipe(fs.createWriteStream(image_path));
-			r.on('end', function() {
-				sendResizedImage(image_path, width, height, res);
-			});
-		} else {
-			sendResizedImage(image_path, width, height, res);
-		}
+	// if we have still have the resized image locally, send that to the client
+	fs.exists(resized_image_path, function(resized_exists) {
+		if (resized_exists) {
+			res.sendfile(resized_image_path);
+			return;
+		};
+
+		// we don't have the resized image... check whether we have the original
+		fs.exists(image_path, function(exists) {
+			var resizeAndSend = function() {
+				resizeImage(image_path, width, height, resized_image_path, function() {
+					res.sendfile(resized_image_path);
+				});
+			};
+
+			if (exists) {
+				resizeAndSend();
+			} else {
+				var r = request(url)
+				r.pipe(fs.createWriteStream(image_path));
+				r.on('end', function() {
+					resizeAndSend();
+				});
+			}
+		});
 	});
 });
 
@@ -35,7 +51,12 @@ var getFileExtension = function(path) {
 
 var pathWithoutExtension = function(path, extension) {
 	return path.substring(0, path.length - extension.length - 1);
-}
+};
+
+var getResizedImagePath = function(image_path, width, height) {
+	var extension = getFileExtension(image_path);
+	return pathWithoutExtension(image_path, extension) + '-' + width + 'x' + height + '.' + extension; 
+};
 
 var validateParameter = function(parameter, name, res) {
 	if (!parameter) {
@@ -55,25 +76,16 @@ var validateQueryStringParameters = function(width, height, url, res) {
 	return valid;
 };
 
-var sendResizedImage = function(image_path, width, height, res) {
-	var extension = getFileExtension(image_path);
-	var resized_image_path = pathWithoutExtension(image_path, extension) + "-" + width + 'x' + height + "." + extension;
-
-	fs.exists(resized_image_path, function(exists) {
-		if (!exists) {
-			im.crop({
-				srcPath : image_path,
-				dstPath : resized_image_path,
-				quality : 1,
-				width : width,
-				height : height
-			}, function(err, stdout, stderr) {
-				if (err) { throw err; };
-				res.sendfile(resized_image_path);
-			});			
-		} else {
-			res.sendfile(resized_image_path);
-		};
+var resizeImage = function(image_path, width, height, resized_image_path, callback) {
+	im.crop({
+		srcPath : image_path,
+		dstPath : resized_image_path,
+		quality : 1,
+		width : width,
+		height : height
+	}, function(err, stdout, stderr) {
+		if (err) { throw err; };
+		callback();
 	});
 };
 
