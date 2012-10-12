@@ -2,6 +2,7 @@ var express = require('express'),
 	request = require('request'),
 	fs = require('fs'),
 	im = require('imagemagick'),
+	touch = require('touch'),
 	crypto = require('crypto');
 
 var app = express(),
@@ -17,10 +18,15 @@ app.get('/', function(req, res){
 	var image_path = image_cache_path + '/' + hashedUrl + '.' + getFileExtension(url);
 	var resized_image_path = getResizedImagePath(image_path, width, height);
 
+	var sendFile = function() {
+		touch(resized_image_path);
+		res.sendfile(resized_image_path);
+	};
+
 	// if we have still have the resized image locally, send that to the client
 	fs.exists(resized_image_path, function(resized_exists) {
 		if (resized_exists) {
-			res.sendfile(resized_image_path);
+			sendFile();
 			return;
 		};
 
@@ -28,7 +34,7 @@ app.get('/', function(req, res){
 		fs.exists(image_path, function(exists) {
 			var resizeAndSend = function() {
 				resizeImage(image_path, width, height, resized_image_path, function() {
-					res.sendfile(resized_image_path);
+					sendFile();
 				});
 			};
 
@@ -77,6 +83,7 @@ var validateQueryStringParameters = function(width, height, url, res) {
 };
 
 var resizeImage = function(image_path, width, height, resized_image_path, callback) {
+	touch(image_path);
 	im.crop({
 		srcPath : image_path,
 		dstPath : resized_image_path,
@@ -92,6 +99,27 @@ var resizeImage = function(image_path, width, height, resized_image_path, callba
 if (!fs.existsSync(image_cache_path)) {
 	fs.mkdirSync(image_cache_path);
 };
+
+var clean_cached_images = function() {
+	var images_ordered_descending_by_mod_date = fs.readdirSync(image_cache_path)
+    .map(function(v) { 
+        return { 
+        	name: v,
+          time: fs.statSync(image_cache_path + '/' + v).mtime.getTime()
+        }; 
+     })
+    .sort(function(a, b) { return b.time - a.time; })
+    .map(function(v) { return v.name; });
+
+  if (images_ordered_descending_by_mod_date.length > 10) {
+  	var images_to_remove = images_ordered_descending_by_mod_date.slice(10);
+  	for (var i = images_to_remove.length - 1; i >= 0; i--) {
+  		fs.unlink(image_cache_path + '/' + images_to_remove[i]);
+  	};
+  };
+};
+
+setInterval(clean_cached_images, 120000);
 
 app.listen(3000);
 console.log('Listening on port 3000');
